@@ -1,2 +1,4 @@
 feedparser
 requests
+python-telegram-bot==13.7
+newspaper3k
