@@ -1,66 +1,58 @@
 import feedparser
 import requests
+import telegram
 import time
+from newspaper import Article
 
-# === CONFIG ===
-BOT_TOKEN = "7839637427:AAE0LL7xeUVJiJusSHaHTOGYAI3kopwxdn4"
-CHANNEL_ID = "@football1805"  # your channel username
-RSS_FEED = "http://feeds.bbci.co.uk/sport/football/rss.xml"
+# Telegram details
+BOT_TOKEN = "YOUR_BOT_TOKEN"
+CHANNEL_ID = "@football1805"
 
-# Track posted links
-posted = set()
+# RSS feed
+RSS_URL = "http://feeds.bbci.co.uk/sport/football/rss.xml"
 
-def get_feed():
-    return feedparser.parse(RSS_FEED).entries
+bot = telegram.Bot(token=BOT_TOKEN)
 
-def send_to_telegram(title, link, summary, image_url=None):
-    text = f"📰 <b>{title}</b>\n\n{summary}\n"
-    if image_url:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-        data = {
-            "chat_id": CHANNEL_ID,
-            "caption": text,
-            "parse_mode": "HTML",
-            "photo": image_url
-        }
-        requests.post(url, data=data)
-    else:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        data = {
-            "chat_id": CHANNEL_ID,
-            "text": text,
-            "parse_mode": "HTML"
-        }
-        requests.post(url, data=data)
+# Keep track of posted links
+posted_links = set()
 
-def extract_image(entry):
-    # BBC often uses media_thumbnail
-    if "media_thumbnail" in entry:
-        return entry.media_thumbnail[0]["url"]
+def get_main_image(url):
+    """Scrape article to get high-quality main image"""
+    try:
+        article = Article(url)
+        article.download()
+        article.parse()
+        return article.top_image if article.top_image else None
+    except Exception as e:
+        print("Image scrape failed:", e)
+        return None
 
-    # Sometimes media_content
-    if "media_content" in entry:
-        return entry.media_content[0]["url"]
+def fetch_and_post():
+    feed = feedparser.parse(RSS_URL)
+    for entry in feed.entries[:1]:  # latest only
+        if entry.link not in posted_links:
+            title = entry.title
+            summary = entry.summary[:400] + "..." if len(entry.summary) > 400 else entry.summary
+            url = entry.link
 
-    # Fallback: check links for images
-    if "links" in entry:
-        for l in entry.links:
-            if l.get("type", "").startswith("image"):
-                return l["href"]
+            # Get HQ image from article
+            image_url = get_main_image(url)
 
-    return None
+            if image_url:
+                bot.send_photo(
+                    chat_id=CHANNEL_ID,
+                    photo=image_url,
+                    caption=f"📰 {title}\n\n{summary}"
+                )
+            else:
+                bot.send_message(
+                    chat_id=CHANNEL_ID,
+                    text=f"📰 {title}\n\n{summary}"
+                )
 
-def run_bot():
-    global posted
-    while True:
-        feed = get_feed()
-        for entry in feed[:5]:  # check latest 5
-            if entry.link not in posted:
-                posted.add(entry.link)
-                img = extract_image(entry)
-                send_to_telegram(entry.title, entry.link, entry.summary, img)
-                print("Posted:", entry.title)
-        time.sleep(300)  # wait 5 mins before checking again
+            posted_links.add(entry.link)
 
-if __name__ == "__main__":
-    run_bot()
+# Run every 5 minutes
+while True:
+    fetch_and_post()
+    time.sleep(300)
