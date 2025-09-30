@@ -17,21 +17,37 @@ def send_to_telegram(title, link, summary, image_url=None):
     text = f"📰 <b>{title}</b>\n\n{summary}\n"
     if image_url:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-        data = {"chat_id": CHANNEL_ID, "caption": text, "parse_mode": "HTML"}
-        files = {"photo": requests.get(image_url).content}
-        requests.post(url, data=data, files=files)
+        data = {
+            "chat_id": CHANNEL_ID,
+            "caption": text,
+            "parse_mode": "HTML",
+            "photo": image_url
+        }
+        requests.post(url, data=data)
     else:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        data = {"chat_id": CHANNEL_ID, "text": text, "parse_mode": "HTML"}
+        data = {
+            "chat_id": CHANNEL_ID,
+            "text": text,
+            "parse_mode": "HTML"
+        }
         requests.post(url, data=data)
 
 def extract_image(entry):
+    # BBC often uses media_thumbnail
+    if "media_thumbnail" in entry:
+        return entry.media_thumbnail[0]["url"]
+
+    # Sometimes media_content
     if "media_content" in entry:
         return entry.media_content[0]["url"]
+
+    # Fallback: check links for images
     if "links" in entry:
         for l in entry.links:
             if l.get("type", "").startswith("image"):
                 return l["href"]
+
     return None
 
 def run_bot():
