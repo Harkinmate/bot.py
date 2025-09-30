@@ -1,23 +1,34 @@
 import feedparser
-import requests
-import telegram
+import json
 import time
 from newspaper import Article
+from telegram import Bot
+from telegram.error import TelegramError
 
-# Telegram details
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+# ---------------- CONFIG ----------------
+BOT_TOKEN = "7839637427:AAE0LL7xeUVJiJusSHaHTOGYAI3kopwxdn4"
 CHANNEL_ID = "@football1805"
-
-# RSS feed
 RSS_URL = "http://feeds.bbci.co.uk/sport/football/rss.xml"
+POSTED_FILE = "posted_links.json"
+FETCH_LIMIT = 5         # number of latest articles per run
+SLEEP_SECONDS = 20      # update every 20 seconds
+# ---------------------------------------
 
-bot = telegram.Bot(token=BOT_TOKEN)
+bot = Bot(token=BOT_TOKEN)
 
-# Keep track of posted links
-posted_links = set()
+# Load posted links
+try:
+    with open(POSTED_FILE, "r") as f:
+        posted_links = set(json.load(f))
+except:
+    posted_links = set()
+
+def save_posted_links():
+    with open(POSTED_FILE, "w") as f:
+        json.dump(list(posted_links), f)
 
 def get_main_image(url):
-    """Scrape article to get high-quality main image"""
+    """Get high-quality image from article"""
     try:
         article = Article(url)
         article.download()
@@ -29,30 +40,40 @@ def get_main_image(url):
 
 def fetch_and_post():
     feed = feedparser.parse(RSS_URL)
-    for entry in feed.entries[:1]:  # latest only
-        if entry.link not in posted_links:
-            title = entry.title
-            summary = entry.summary[:400] + "..." if len(entry.summary) > 400 else entry.summary
-            url = entry.link
+    for entry in feed.entries[:FETCH_LIMIT]:
+        if entry.link in posted_links:
+            continue
 
-            # Get HQ image from article
-            image_url = get_main_image(url)
+        title = entry.title
+        summary = entry.summary[:400] + "..." if len(entry.summary) > 400 else entry.summary
+        url = entry.link
 
+        image_url = get_main_image(url)
+
+        try:
             if image_url:
                 bot.send_photo(
                     chat_id=CHANNEL_ID,
                     photo=image_url,
-                    caption=f"📰 {title}\n\n{summary}"
+                    caption=f"📰 {title}\n\n{summary}\n\nRead more: {url}"
                 )
             else:
                 bot.send_message(
                     chat_id=CHANNEL_ID,
-                    text=f"📰 {title}\n\n{summary}"
+                    text=f"📰 {title}\n\n{summary}\n\nRead more: {url}"
                 )
+            print(f"Posted: {title}")
+        except TelegramError as e:
+            print("Telegram error:", e)
 
-            posted_links.add(entry.link)
+        posted_links.add(url)
+        save_posted_links()
 
-# Run every 5 minutes
-while True:
-    fetch_and_post()
-    time.sleep(300)
+if __name__ == "__main__":
+    print("Bot started. Fetching articles every 20 seconds...")
+    while True:
+        try:
+            fetch_and_post()
+        except Exception as e:
+            print("Error in fetch_and_post:", e)
+        time.sleep(SLEEP_SECONDS)
